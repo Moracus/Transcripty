@@ -31,10 +31,11 @@ CHUNK_SIZE_MS = 30000  # 30 seconds
 
 def query(data):
     response = requests.post(API_URL, headers=HEADERS, data=data)
+    print(f"Request to {API_URL} with headers {HEADERS}\n")
+    print(f"Response status code: {response.status_code}\n")
+    print(f"Response content: {response.content}\n")
     response.raise_for_status()  # Raise an exception for HTTP errors
-    logging.info(f"Request to {API_URL} with headers {HEADERS}")
-    logging.info(f"Response status code: {response.status_code}")
-    logging.info(f"Response content: {response.content}")
+  
     return response.json()
 
 
