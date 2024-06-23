@@ -1,4 +1,5 @@
 import requests
+import aiocron
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,14 @@ HEADERS = {"Authorization": "Bearer "+os.getenv("API_KEY")}
 
 CHUNK_SIZE_MS = 30000  # 30 seconds
 
+
+
+
+
+@aiocron.crontab('*/5 * * * *')
+async def self_ping():
+    response = requests.get('https://transcripty.onrender.com/health')
+    print(f"Health check response: {response.status_code}")
 
 def query(data):
     response = requests.post(API_URL, headers=HEADERS, data=data)
