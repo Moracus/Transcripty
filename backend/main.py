@@ -1,13 +1,12 @@
 import requests
-import aiocron
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from pydub import AudioSegment  # For audio processing
 from dotenv import load_dotenv
-import logging
-import aiohttp
+import time
+from requests.exceptions import RequestException
 
 app = FastAPI()
 load_dotenv()
@@ -31,15 +30,24 @@ CHUNK_SIZE_MS = 30000  # 30 seconds
 
 
 
-async def query(data):
-    async with aiohttp.ClientSession() as session:
-        async with session.post(API_URL, headers=HEADERS, data=data) as response:
+def query(data, max_retries=5, initial_wait=10):
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(API_URL, headers=HEADERS, data=data)
             print(f"Request to {API_URL} with headers {HEADERS}\n")
-            print(f"Response status code: {response.status}\n")
-            content = await response.text()
-            print(f"Response content: {content}\n")
-            response.raise_for_status()  # Raise an exception for HTTP errors
-            return await response.json()
+            print(f"Response status code: {response.status_code}\n")
+            print(f"Response content: {response.content}\n")
+            response.raise_for_status()
+            return response.json()
+        except RequestException as e:
+            if response.status_code == 503 and "is currently loading" in response.text:
+                wait_time = initial_wait * (2 ** attempt)  # Exponential backoff
+                print(f"Model is loading. Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                raise e
+    
+    raise Exception("Max retries reached. Model is still loading.")
 
 
 def split_audio_file(filename):
@@ -49,7 +57,8 @@ def split_audio_file(filename):
         chunks.append(audio[i:i + CHUNK_SIZE_MS])
     return chunks
 
-@app.post("/post_audio")
+
+@app.post("/post-audio")
 async def post_audio(file: UploadFile = File(...)):
     try:
         # Save the uploaded audio file
@@ -66,7 +75,7 @@ async def post_audio(file: UploadFile = File(...)):
             chunk.export(chunk_filename, format="flac")
             with open(chunk_filename, "rb") as f:
                 data = f.read()
-            text_response = await query(data)  # Await the query function
+            text_response = query(data)
             converted_text += text_response['text'] + " "
 
         # Print the converted text
@@ -75,12 +84,14 @@ async def post_audio(file: UploadFile = File(...)):
         # Return the text response
         return JSONResponse(content={"text": converted_text.strip()})
 
-    except aiohttp.ClientError as e:
+    except requests.RequestException as e:
         print(f"HTTP error: {e}")
         return JSONResponse(content={"error": "HTTP error occurred"}, status_code=500)
     except Exception as e:
-        print(e)
+        print(f"Error: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
 @app.get("/health")
 async def root():
     return {"message": "Hello World"}
