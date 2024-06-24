@@ -7,6 +7,7 @@ import os
 from pydub import AudioSegment  # For audio processing
 from dotenv import load_dotenv
 import logging
+import aiohttp
 
 app = FastAPI()
 load_dotenv()
@@ -31,13 +32,14 @@ CHUNK_SIZE_MS = 30000  # 30 seconds
 
 
 async def query(data):
-    response = await requests.post(API_URL, headers=HEADERS, data=data)
-    print(f"Request to {API_URL} with headers {HEADERS}\n")
-    print(f"Response status code: {response.status_code}\n")
-    print(f"Response content: {response.content}\n")
-    response.raise_for_status()  # Raise an exception for HTTP errors
-  
-    return response.json()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(API_URL, headers=HEADERS, data=data) as response:
+            print(f"Request to {API_URL} with headers {HEADERS}\n")
+            print(f"Response status code: {response.status}\n")
+            content = await response.text()
+            print(f"Response content: {content}\n")
+            response.raise_for_status()  # Raise an exception for HTTP errors
+            return await response.json()
 
 
 def split_audio_file(filename):
@@ -47,8 +49,7 @@ def split_audio_file(filename):
         chunks.append(audio[i:i + CHUNK_SIZE_MS])
     return chunks
 
-
-@app.post("/post-audio")
+@app.post("/post_audio")
 async def post_audio(file: UploadFile = File(...)):
     try:
         # Save the uploaded audio file
@@ -65,7 +66,7 @@ async def post_audio(file: UploadFile = File(...)):
             chunk.export(chunk_filename, format="flac")
             with open(chunk_filename, "rb") as f:
                 data = f.read()
-            text_response = query(data)
+            text_response = await query(data)  # Await the query function
             converted_text += text_response['text'] + " "
 
         # Print the converted text
@@ -74,14 +75,12 @@ async def post_audio(file: UploadFile = File(...)):
         # Return the text response
         return JSONResponse(content={"text": converted_text.strip()})
 
-    except requests.RequestException as e:
+    except aiohttp.ClientError as e:
         print(f"HTTP error: {e}")
         return JSONResponse(content={"error": "HTTP error occurred"}, status_code=500)
     except Exception as e:
         print(e)
         return JSONResponse(content={"error": str(e)}, status_code=500)
-
-
 @app.get("/health")
 async def root():
     return {"message": "Hello World"}
